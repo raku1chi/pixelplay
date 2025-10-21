@@ -54,6 +54,34 @@ def apply_image_process(
         processed_image = ImageOps.mirror(processed_image)
     elif process_type == "上下反転":
         processed_image = ImageOps.flip(processed_image)
+    elif process_type == "リサイズ":
+        method = params.get("resize_method", "fit")
+        # PIL 9+ では Image.Resampling.LANCZOS が推奨だが、後方互換で Image.LANCZOS を使用
+        resample = Image.LANCZOS
+
+        if method == "width":
+            target_w = int(params.get("width", processed_image.width))
+            ratio = target_w / processed_image.width
+            target_h = max(1, int(processed_image.height * ratio))
+            processed_image = processed_image.resize((target_w, target_h), resample)
+        elif method == "height":
+            target_h = int(params.get("height", processed_image.height))
+            ratio = target_h / processed_image.height
+            target_w = max(1, int(processed_image.width * ratio))
+            processed_image = processed_image.resize((target_w, target_h), resample)
+        elif method == "stretch":
+            target_w = int(params.get("width", processed_image.width))
+            target_h = int(params.get("height", processed_image.height))
+            processed_image = processed_image.resize((target_w, target_h), resample)
+        else:  # fit（内接）
+            target_w = int(params.get("width", processed_image.width))
+            target_h = int(params.get("height", processed_image.height))
+            scale = min(
+                target_w / processed_image.width, target_h / processed_image.height
+            )
+            new_w = max(1, int(processed_image.width * scale))
+            new_h = max(1, int(processed_image.height * scale))
+            processed_image = processed_image.resize((new_w, new_h), resample)
     elif process_type == "回転":
         processed_image = processed_image.rotate(params["angle"], expand=True)
     elif process_type == "エンボス":
@@ -95,6 +123,7 @@ if uploaded_files:
             "シャープ化",
             "明るさ調整",
             "コントラスト調整",
+            "リサイズ",
             "セピア",
             "反転",
             "左右反転",
@@ -114,6 +143,29 @@ if uploaded_files:
         params["brightness"] = st.slider("明るさ", 0.5, 2.0, 1.0, 0.1)
     elif process_type == "コントラスト調整":
         params["contrast"] = st.slider("コントラスト", 0.5, 2.0, 1.0, 0.1)
+    elif process_type == "リサイズ":
+        st.markdown("#### リサイズ設定")
+        method_label = st.radio(
+            "リサイズ方法",
+            [
+                "幅で指定",
+                "高さで指定",
+                "幅×高さ（比率維持）",
+                "幅×高さ（そのまま）",
+            ],
+            horizontal=True,
+        )
+        method_map = {
+            "幅で指定": "width",
+            "高さで指定": "height",
+            "幅×高さ（比率維持）": "fit",
+            "幅×高さ（そのまま）": "stretch",
+        }
+        params["resize_method"] = method_map[method_label]
+        if params["resize_method"] in ("width", "fit", "stretch"):
+            params["width"] = st.number_input("幅 (px)", min_value=1, value=800)
+        if params["resize_method"] in ("height", "fit", "stretch"):
+            params["height"] = st.number_input("高さ (px)", min_value=1, value=600)
     elif process_type == "回転":
         params["angle"] = st.slider("回転角度", 0, 360, 90, 15)
     elif process_type == "ポスタライズ":
