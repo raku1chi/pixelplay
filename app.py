@@ -1,13 +1,31 @@
 import streamlit as st
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 import io
-import numpy as np
 import zipfile
 from datetime import datetime
+from typing import Dict
 
 
-def apply_image_process(image, process_type, params):
-    """画像に指定された処理を適用する"""
+def make_download_filename(idx: int, original_name: str) -> str:
+    """ダウンロード用の安全なファイル名を作成する（拡張子はPNG固定）"""
+    stem = original_name.rsplit(".", 1)[0]
+    return f"processed_{idx}_{stem}.png"
+
+
+def apply_image_process(
+    image: Image.Image, process_type: str, params: Dict
+) -> Image.Image:
+    """
+    画像に指定された処理を適用する
+
+    Args:
+        image: 入力PIL画像
+        process_type: 処理名（セレクトボックスの値）
+        params: スライダー等で指定されたパラメータ辞書
+
+    Returns:
+        処理後のPIL画像
+    """
     processed_image = image.copy()
 
     if process_type == "グレースケール":
@@ -27,16 +45,9 @@ def apply_image_process(image, process_type, params):
         enhancer = ImageEnhance.Contrast(processed_image)
         processed_image = enhancer.enhance(params["contrast"])
     elif process_type == "セピア":
-        processed_image = processed_image.convert("RGB")
-        width, height = processed_image.size
-        pixels = processed_image.load()
-        for py in range(height):
-            for px in range(width):
-                r, g, b = processed_image.getpixel((px, py))
-                tr = int(0.393 * r + 0.769 * g + 0.189 * b)
-                tg = int(0.349 * r + 0.686 * g + 0.168 * b)
-                tb = int(0.272 * r + 0.534 * g + 0.131 * b)
-                pixels[px, py] = (min(tr, 255), min(tg, 255), min(tb, 255))
+        # グレースケール化した画像にセピアの色を付与（高速・簡潔）
+        gray = processed_image.convert("L")
+        processed_image = ImageOps.colorize(gray, black="#2e1f0f", white="#e0c9a6")
     elif process_type == "反転":
         processed_image = ImageOps.invert(processed_image.convert("RGB"))
     elif process_type == "左右反転":
@@ -112,7 +123,8 @@ if uploaded_files:
 
     st.divider()
 
-    # 処理後の画像を保存するリスト
+    # 処理適用フラグと、処理後の画像を保存するリスト
+    apply_proc = process_type != "なし"
     processed_images = []
 
     # 各画像を処理
@@ -137,7 +149,7 @@ if uploaded_files:
             st.image(processed_image, use_container_width=True)
 
         # 処理後の画像を保存
-        if process_type != "なし":
+        if apply_proc:
             processed_images.append((processed_image, uploaded_file.name))
 
         # 画像情報表示
@@ -146,7 +158,7 @@ if uploaded_files:
         )
 
         # ダウンロードボタン
-        if process_type != "なし":
+        if apply_proc:
             buf = io.BytesIO()
             processed_image.save(buf, format="PNG")
             byte_im = buf.getvalue()
@@ -154,7 +166,7 @@ if uploaded_files:
             st.download_button(
                 label=f"📥 画像 {idx} をダウンロード",
                 data=byte_im,
-                file_name=f"processed_{idx}_{uploaded_file.name}",
+                file_name=make_download_filename(idx, uploaded_file.name),
                 mime="image/png",
                 key=f"download_{idx}",
             )
@@ -163,7 +175,7 @@ if uploaded_files:
             st.divider()
 
     # ZIPファイルでまとめてダウンロード
-    if process_type != "なし" and len(processed_images) > 1:
+    if apply_proc and len(processed_images) > 1:
         st.divider()
         st.subheader("📦 まとめてダウンロード")
 
@@ -177,7 +189,7 @@ if uploaded_files:
                 img_buffer.seek(0)
 
                 # ZIPファイルに追加
-                filename = f"processed_{idx}_{original_name.rsplit('.', 1)[0]}.png"
+                filename = make_download_filename(idx, original_name)
                 zip_file.writestr(filename, img_buffer.getvalue())
 
         zip_buffer.seek(0)
