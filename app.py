@@ -2,6 +2,8 @@ import streamlit as st
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 import io
 import numpy as np
+import zipfile
+from datetime import datetime
 
 
 def apply_image_process(image, process_type, params):
@@ -110,6 +112,9 @@ if uploaded_files:
 
     st.divider()
 
+    # 処理後の画像を保存するリスト
+    processed_images = []
+
     # 各画像を処理
     for idx, uploaded_file in enumerate(uploaded_files, 1):
         st.subheader(f"画像 {idx}: {uploaded_file.name}")
@@ -130,6 +135,10 @@ if uploaded_files:
         with col2:
             st.write("**処理後の画像**")
             st.image(processed_image, use_container_width=True)
+
+        # 処理後の画像を保存
+        if process_type != "なし":
+            processed_images.append((processed_image, uploaded_file.name))
 
         # 画像情報表示
         st.caption(
@@ -152,3 +161,33 @@ if uploaded_files:
 
         if idx < len(uploaded_files):
             st.divider()
+
+    # ZIPファイルでまとめてダウンロード
+    if process_type != "なし" and len(processed_images) > 1:
+        st.divider()
+        st.subheader("📦 まとめてダウンロード")
+
+        # ZIPファイルを作成
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for idx, (img, original_name) in enumerate(processed_images, 1):
+                # 各画像をバイトストリームに保存
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format="PNG")
+                img_buffer.seek(0)
+
+                # ZIPファイルに追加
+                filename = f"processed_{idx}_{original_name.rsplit('.', 1)[0]}.png"
+                zip_file.writestr(filename, img_buffer.getvalue())
+
+        zip_buffer.seek(0)
+
+        # タイムスタンプ付きファイル名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        st.download_button(
+            label=f"🗜️ すべての画像をZIPでダウンロード ({len(processed_images)}枚)",
+            data=zip_buffer.getvalue(),
+            file_name=f"processed_images_{timestamp}.zip",
+            mime="application/zip",
+        )
