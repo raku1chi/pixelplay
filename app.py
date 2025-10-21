@@ -12,6 +12,18 @@ def make_download_filename(idx: int, original_name: str) -> str:
     return f"processed_{idx}_{stem}.png"
 
 
+def center_crop(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
+    """画像中心から指定サイズで切り抜き（はみ出すサイズは画像に収まるよう制限）"""
+    w, h = img.size
+    tw = max(1, min(target_w, w))
+    th = max(1, min(target_h, h))
+    left = (w - tw) // 2
+    top = (h - th) // 2
+    right = left + tw
+    bottom = top + th
+    return img.crop((left, top, right, bottom))
+
+
 def apply_image_process(
     image: Image.Image, process_type: str, params: Dict
 ) -> Image.Image:
@@ -54,6 +66,15 @@ def apply_image_process(
         processed_image = ImageOps.mirror(processed_image)
     elif process_type == "上下反転":
         processed_image = ImageOps.flip(processed_image)
+    elif process_type == "切り抜き":
+        method = params.get("crop_method", "square")
+        if method == "square":
+            size = int(params.get("size", min(processed_image.size)))
+            processed_image = center_crop(processed_image, size, size)
+        else:
+            target_w = int(params.get("crop_width", processed_image.width))
+            target_h = int(params.get("crop_height", processed_image.height))
+            processed_image = center_crop(processed_image, target_w, target_h)
     elif process_type == "リサイズ":
         method = params.get("resize_method", "fit")
         # PIL 9+ では Image.Resampling.LANCZOS が推奨だが、後方互換で Image.LANCZOS を使用
@@ -124,6 +145,7 @@ if uploaded_files:
             "明るさ調整",
             "コントラスト調整",
             "リサイズ",
+            "切り抜き",
             "セピア",
             "反転",
             "左右反転",
@@ -166,6 +188,26 @@ if uploaded_files:
             params["width"] = st.number_input("幅 (px)", min_value=1, value=800)
         if params["resize_method"] in ("height", "fit", "stretch"):
             params["height"] = st.number_input("高さ (px)", min_value=1, value=600)
+    elif process_type == "切り抜き":
+        st.markdown("#### 切り抜き設定")
+        crop_label = st.radio(
+            "切り抜き方法",
+            [
+                "正方形（中央）",
+                "幅×高さ（中央）",
+            ],
+            horizontal=True,
+        )
+        crop_map = {
+            "正方形（中央）": "square",
+            "幅×高さ（中央）": "rect",
+        }
+        params["crop_method"] = crop_map[crop_label]
+        if params["crop_method"] == "square":
+            params["size"] = st.number_input("一辺の長さ (px)", min_value=1, value=512)
+        else:
+            params["crop_width"] = st.number_input("幅 (px)", min_value=1, value=512)
+            params["crop_height"] = st.number_input("高さ (px)", min_value=1, value=512)
     elif process_type == "回転":
         params["angle"] = st.slider("回転角度", 0, 360, 90, 15)
     elif process_type == "ポスタライズ":
