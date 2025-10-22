@@ -218,6 +218,57 @@ uploaded_files = st.file_uploader(
     help="JPEG/PNGに対応。複数枚をまとめて選択できます。",
 )
 
+# 画像が未アップロードでも、デフォルト設定を“無効のまま”見せてガイドする
+if not uploaded_files:
+    sb.subheader("2. 加工をえらぶ")
+    sb.selectbox(
+        "適用する加工",
+        [
+            "なし",
+            "グレースケール",
+            "ぼかし",
+            "輪郭検出",
+            "シャープ化",
+            "明るさ調整",
+            "コントラスト調整",
+            "フォトモザイク",
+            "リサイズ",
+            "切り抜き",
+            "セピア",
+            "反転",
+            "左右反転",
+            "上下反転",
+            "回転",
+            "エンボス",
+            "ポスタライズ",
+            "ソラリゼーション",
+        ],
+        index=0,
+        disabled=True,
+    )
+
+    sb.markdown("#### 出力形式")
+    sb.radio(
+        "出力形式",
+        ["PNG", "JPEG"],
+        index=0,
+        horizontal=True,
+        help="PNG は可逆圧縮で画質劣化なし。JPEG は写真向けでファイルが小さくなります。",
+        disabled=True,
+    )
+
+    sb.radio(
+        "メタデータ（EXIF）の扱い",
+        ["保持する", "GPSだけ削除", "全部削除"],
+        index=0,
+        horizontal=True,
+        help=(
+            "EXIFは撮影日時やGPSなどのメタデータです。プライバシー配慮が必要な場合は削除を選んでください。"
+        ),
+        disabled=True,
+    )
+    st.info("画像をアップロードすると設定を操作できます。")
+
 if uploaded_files:
     st.info(f"📁 {len(uploaded_files)}枚の画像を読み込みました")
 
