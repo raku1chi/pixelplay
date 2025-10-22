@@ -6,10 +6,10 @@ from datetime import datetime
 from typing import Dict
 
 
-def make_download_filename(idx: int, original_name: str) -> str:
-    """ダウンロード用の安全なファイル名を作成する（拡張子はPNG固定）"""
+def make_download_filename(idx: int, original_name: str, ext: str) -> str:
+    """ダウンロード用の安全なファイル名を作成する（拡張子を指定）"""
     stem = original_name.rsplit(".", 1)[0]
-    return f"processed_{idx}_{stem}.png"
+    return f"processed_{idx}_{stem}.{ext}"
 
 
 def center_crop(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
@@ -22,6 +22,27 @@ def center_crop(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
     right = left + tw
     bottom = top + th
     return img.crop((left, top, right, bottom))
+
+
+def prepare_download_bytes(img: Image.Image, fmt: str, jpeg_quality: int | None = None):
+    """出力形式に応じて画像をエンコードして、(bytes, ext, mime) を返す"""
+    fmt = fmt.upper()
+    if fmt not in ("PNG", "JPEG"):
+        fmt = "PNG"
+    ext = "png" if fmt == "PNG" else "jpg"
+    mime = "image/png" if fmt == "PNG" else "image/jpeg"
+
+    out = img
+    if fmt == "JPEG" and out.mode not in ("RGB", "L"):
+        # JPEGはアルファをサポートしないため安全にRGBへ
+        out = out.convert("RGB")
+
+    buf = io.BytesIO()
+    save_kwargs = {"format": fmt}
+    if fmt == "JPEG" and jpeg_quality is not None:
+        save_kwargs.update({"quality": int(jpeg_quality), "optimize": True})
+    out.save(buf, **save_kwargs)
+    return buf.getvalue(), ext, mime
 
 
 def apply_image_process(
@@ -233,6 +254,14 @@ if uploaded_files:
     elif process_type == "ソラリゼーション":
         params["threshold"] = st.slider("しきい値", 0, 255, 128)
 
+    # 出力形式の設定
+    st.markdown("#### 出力形式")
+    format_label = st.radio("出力形式", ["PNG", "JPEG"], horizontal=True)
+    output_format = "PNG" if format_label == "PNG" else "JPEG"
+    jpeg_quality = None
+    if output_format == "JPEG":
+        jpeg_quality = st.slider("JPEGの品質", min_value=60, max_value=100, value=90)
+
     st.divider()
 
     # 処理適用フラグと、処理後の画像を保存するリスト
@@ -271,15 +300,14 @@ if uploaded_files:
 
         # ダウンロードボタン
         if apply_proc:
-            buf = io.BytesIO()
-            processed_image.save(buf, format="PNG")
-            byte_im = buf.getvalue()
-
+            byte_im, ext, mime = prepare_download_bytes(
+                processed_image, output_format, jpeg_quality
+            )
             st.download_button(
                 label=f"📥 画像 {idx} をダウンロード",
                 data=byte_im,
-                file_name=make_download_filename(idx, uploaded_file.name),
-                mime="image/png",
+                file_name=make_download_filename(idx, uploaded_file.name, ext),
+                mime=mime,
                 key=f"download_{idx}",
             )
 
@@ -295,14 +323,13 @@ if uploaded_files:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for idx, (img, original_name) in enumerate(processed_images, 1):
-                # 各画像をバイトストリームに保存
-                img_buffer = io.BytesIO()
-                img.save(img_buffer, format="PNG")
-                img_buffer.seek(0)
-
+                # 各画像をバイトストリームに保存（選択形式に合わせる）
+                img_bytes, ext, _mime = prepare_download_bytes(
+                    img, output_format, jpeg_quality
+                )
                 # ZIPファイルに追加
-                filename = make_download_filename(idx, original_name)
-                zip_file.writestr(filename, img_buffer.getvalue())
+                filename = make_download_filename(idx, original_name, ext)
+                zip_file.writestr(filename, img_bytes)
 
         zip_buffer.seek(0)
 
