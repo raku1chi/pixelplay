@@ -212,11 +212,17 @@ sb.header("設定")
 # 1. 画像をアップロード
 st.markdown("### 1. 画像をアップロード")
 uploaded_files = st.file_uploader(
-    "ここに画像をドラッグ＆ドロップ、または選択（複数可）",
+    "ここに画像をドラッグ＆ドロップ、または選択（最大5枚まで複数選択可）",
     type=["jpg", "jpeg", "png"],
     accept_multiple_files=True,
-    help="JPEG/PNGに対応。複数枚をまとめて選択できます。",
+    help="JPEG/PNGに対応。最大5枚まで複数選択可。",
 )
+
+# 最大枚数の制限（先頭5枚のみ処理）
+MAX_FILES = 5
+if uploaded_files and len(uploaded_files) > MAX_FILES:
+    st.warning(f"画像は最大{MAX_FILES}枚までです。先頭{MAX_FILES}枚のみ処理します。")
+    uploaded_files = uploaded_files[:MAX_FILES]
 
 # 画像が未アップロードでも、デフォルト設定を“無効のまま”見せてガイドする
 if not uploaded_files:
