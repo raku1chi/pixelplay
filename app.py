@@ -335,8 +335,7 @@ if uploaded_files:
 
     st.divider()
 
-    # 処理適用フラグと、処理後の画像を保存するリスト
-    apply_proc = process_type != "なし"
+    # 処理後の画像を保存するリスト（加工なしでもダウンロード可能に）
     processed_images = []
 
     # 各画像を処理
@@ -361,37 +360,35 @@ if uploaded_files:
             st.write("**加工後の画像**")
             st.image(processed_image, use_container_width=True)
 
-        # 処理後の画像を保存
-        if apply_proc:
-            processed_images.append((processed_image, uploaded_file.name))
+        # 処理後（またはそのまま）の画像を保存
+        processed_images.append((processed_image, uploaded_file.name))
 
         # 画像情報表示
         st.caption(
             f"サイズ: {image.size[0]} x {image.size[1]} ピクセル | フォーマット: {image.format} | モード: {image.mode}"
         )
 
-        # ダウンロードボタン
-        if apply_proc:
-            # JPEG時のEXIF処理
-            exif_bytes = None
-            if output_format == "JPEG":
-                exif_bytes = build_exif_bytes(image, exif_policy)
-            byte_im, ext, mime = prepare_download_bytes(
-                processed_image, output_format, jpeg_quality, exif_bytes
-            )
-            st.download_button(
-                label=f"📥 画像 {idx} をダウンロード",
-                data=byte_im,
-                file_name=make_download_filename(idx, uploaded_file.name, ext),
-                mime=mime,
-                key=f"download_{idx}",
-            )
+        # ダウンロードボタン（加工なしでも可）
+        # JPEG時のEXIF処理
+        exif_bytes = None
+        if output_format == "JPEG":
+            exif_bytes = build_exif_bytes(image, exif_policy)
+        byte_im, ext, mime = prepare_download_bytes(
+            processed_image, output_format, jpeg_quality, exif_bytes
+        )
+        st.download_button(
+            label=f"📥 画像 {idx} をダウンロード",
+            data=byte_im,
+            file_name=make_download_filename(idx, uploaded_file.name, ext),
+            mime=mime,
+            key=f"download_{idx}",
+        )
 
         if idx < len(uploaded_files):
             st.divider()
 
-    # ZIPファイルでまとめてダウンロード
-    if apply_proc and len(processed_images) > 1:
+    # ZIPファイルでまとめてダウンロード（加工なしでも可）
+    if len(processed_images) > 1:
         st.divider()
         st.subheader("📦 3. まとめてダウンロード")
 
