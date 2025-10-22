@@ -325,7 +325,53 @@ if uploaded_files:
         project_root = Path(__file__).resolve().parent
         tiles_root = project_root / "tiler" / "tiles"
 
-        # tiler/tiles 配下の全タイルセットを列挙
+        # tiler/tiles 配下の全タイルセットを列挙（日本語のわかりやすい表示名に変換）
+        def friendly_tile_label(fam: str, child: str | None) -> str:
+            fam_map = {
+                "at": "@",
+                "circles": "円",
+                "clips": "クリップ",
+                "hearts": "ハート",
+                "lego": "レゴ",
+                "lines": "線",
+                "minecraft": "マインクラフト",
+                "plus": "＋",
+                "times": "×",
+                "waves": "波",
+            }
+            base = fam_map.get(fam, fam)
+            if child is None:
+                return base
+            # 子フォルダごとのニュアンス
+            name = child
+            if fam == "circles":
+                # gen_circle_100 -> 円 100
+                import re
+
+                m = re.search(r"(\d+)", name)
+                return f"{base} {m.group(1)}" if m else base
+            if fam == "lines":
+                # gen_line_h/v
+                return (
+                    f"{base}（横）"
+                    if name.endswith("_h")
+                    else f"{base}（縦）"
+                    if name.endswith("_v")
+                    else base
+                )
+            if fam == "lego":
+                return (
+                    f"{base}（横）"
+                    if name.endswith("_h")
+                    else f"{base}（縦）"
+                    if name.endswith("_v")
+                    else base
+                )
+            # 単一種別のもの
+            if fam in {"plus", "times", "waves", "hearts", "clips", "at"}:
+                return base
+            return f"{base}/{name}"
+
         available_sets: list[tuple[str, str]] = []  # (label, abs_path)
         default_index = 0
         if tiles_root.exists():
@@ -334,14 +380,14 @@ if uploaded_files:
                 children = sorted([c for c in fam.iterdir() if c.is_dir()])
                 if children:
                     for child in children:
-                        label = f"{fam.name}/{child.name}"
+                        label = friendly_tile_label(fam.name, child.name)
                         available_sets.append((label, str(child)))
-                        # よく使う既定値を circles/gen_circle_100 に合わせる
-                        if label == "circles/gen_circle_100":
+                        # 既定値は circles/gen_circle_100
+                        if fam.name == "circles" and child.name == "gen_circle_100":
                             default_index = len(available_sets) - 1
                 else:
                     # 直下に画像があるタイプ（例: minecraft）
-                    label = f"{fam.name}"
+                    label = friendly_tile_label(fam.name, None)
                     available_sets.append((label, str(fam)))
         else:
             sb.warning(f"タイルルートが見つかりませんでした: {tiles_root}")
