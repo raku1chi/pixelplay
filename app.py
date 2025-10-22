@@ -204,6 +204,11 @@ st.markdown(
 )
 st.caption("アップロードした画像は、このセッション内での処理にのみ使用されます。")
 
+
+# サイドバー（設定）
+sb = st.sidebar
+sb.header("設定")
+
 # 1. 画像をアップロード
 st.markdown("### 1. 画像をアップロード")
 uploaded_files = st.file_uploader(
@@ -216,10 +221,10 @@ uploaded_files = st.file_uploader(
 if uploaded_files:
     st.info(f"📁 {len(uploaded_files)}枚の画像を読み込みました")
 
-    # 2. 加工をえらぶ
-    st.subheader("2. 加工をえらぶ")
+    # 2. 加工をえらぶ（サイドバー）
+    sb.subheader("2. 加工をえらぶ")
 
-    process_type = st.selectbox(
+    process_type = sb.selectbox(
         "適用する加工",
         [
             "なし",
@@ -246,14 +251,14 @@ if uploaded_files:
     # パラメータ設定
     params = {}
     if process_type == "ぼかし":
-        params["blur_radius"] = st.slider("ぼかしの強さ", 0, 10, 2)
+        params["blur_radius"] = sb.slider("ぼかしの強さ", 0, 10, 2)
     elif process_type == "明るさ調整":
-        params["brightness"] = st.slider("明るさ", 0.5, 2.0, 1.0, 0.1)
+        params["brightness"] = sb.slider("明るさ", 0.5, 2.0, 1.0, 0.1)
     elif process_type == "コントラスト調整":
-        params["contrast"] = st.slider("コントラスト", 0.5, 2.0, 1.0, 0.1)
+        params["contrast"] = sb.slider("コントラスト", 0.5, 2.0, 1.0, 0.1)
     elif process_type == "リサイズ":
-        st.markdown("#### リサイズ設定")
-        method_label = st.radio(
+        sb.markdown("#### リサイズ設定")
+        method_label = sb.radio(
             "リサイズ方法",
             [
                 "幅で指定",
@@ -271,11 +276,11 @@ if uploaded_files:
         }
         params["resize_method"] = method_map[method_label]
         if params["resize_method"] in ("width", "fit", "stretch"):
-            params["width"] = st.number_input("幅 (px)", min_value=1, value=800)
+            params["width"] = sb.number_input("幅 (px)", min_value=1, value=800)
         if params["resize_method"] in ("height", "fit", "stretch"):
-            params["height"] = st.number_input("高さ (px)", min_value=1, value=600)
+            params["height"] = sb.number_input("高さ (px)", min_value=1, value=600)
     elif process_type == "フォトモザイク":
-        st.markdown("#### フォトモザイク設定（タイルセットとサイズを自由に選択）")
+        sb.markdown("#### フォトモザイク設定（タイルセットとサイズを自由に選択）")
         project_root = Path(__file__).resolve().parent
         tiles_root = project_root / "tiler" / "tiles"
 
@@ -298,7 +303,7 @@ if uploaded_files:
                     label = f"{fam.name}"
                     available_sets.append((label, str(fam)))
         else:
-            st.warning(f"タイルルートが見つかりませんでした: {tiles_root}")
+            sb.warning(f"タイルルートが見つかりませんでした: {tiles_root}")
 
         if not available_sets:
             st.error(
@@ -307,21 +312,30 @@ if uploaded_files:
             st.stop()
 
         labels = [lbl for lbl, _ in available_sets]
-        tile_label = st.selectbox(
+        tile_label = sb.selectbox(
             "タイルセット", labels, index=min(default_index, len(labels) - 1)
         )
         tile_dir = Path(dict(available_sets)[tile_label])
         if not tile_dir.exists():
-            st.warning(f"タイル画像が見つかりませんでした: {tile_dir}")
+            sb.warning(f"タイル画像が見つかりませんでした: {tile_dir}")
         params["tile_dir"] = str(tile_dir)
 
+        # Various sizes（複数サイズ）トグル（先に宣言し、後のノブを無効化制御）
+        sb.markdown("##### Various sizes（複数サイズのタイルを混ぜる）")
+        use_various = sb.checkbox(
+            "複数のタイル倍率を混ぜる",
+            value=False,
+            help="同じタイルセットから異なる倍率のタイルを複数読み込み、より自然な表現にします（処理時間とメモリ使用量が増えます）。",
+        )
+
         # 主要パラメータ（わかりやすい1つのノブに集約）
-        fine_level = st.slider(
+        fine_level = sb.slider(
             "目の細かさ（粗い ← 1 … 10 → 超細かい）",
             1,
             10,
-            3,
+            10,
             help="1で高速・粗め、数字が大きいほど細かく（処理が重く・時間がかかり）ます。内部的に画像スケールとタイル倍率を自動調整します。",
+            disabled=use_various,
         )
         # レベルごとの推奨プリセット（image_scale, tile_scale）
         presets = [
@@ -337,13 +351,13 @@ if uploaded_files:
             (2.0, 0.10),  # 10: 超細かい（非常に重い）
         ]
         image_scale, tile_scale = presets[fine_level - 1]
-        st.caption(f"推奨設定: 画像スケール {image_scale} / タイル倍率 {tile_scale}")
+        sb.caption(f"推奨設定: 画像スケール {image_scale} / タイル倍率 {tile_scale}")
 
         # 詳細を手動調整したい場合だけ個別スライダーを表示
-        with st.expander("詳細設定（ユーザーには不要です）", expanded=False):
-            custom = st.checkbox("画像スケール・タイル倍率を手動調整する", value=False)
+        with sb.expander("詳細設定", expanded=False):
+            custom = sb.checkbox("画像スケール・タイル倍率を手動調整する", value=False)
             if custom:
-                image_scale = st.slider(
+                image_scale = sb.slider(
                     "画像スケール（大きいほど細かい）",
                     0.2,
                     2.0,
@@ -351,7 +365,7 @@ if uploaded_files:
                     0.05,
                     help="モザイク元画像の内部解像度。上げるほどタイル数が増えて細かくなります（処理は重くなります）。",
                 )
-                tile_scale = st.slider(
+                tile_scale = sb.slider(
                     "タイル倍率（小さいほど細かい）",
                     0.05,
                     1.0,
@@ -360,14 +374,6 @@ if uploaded_files:
                     help="タイル画像自体の拡大縮小倍率。0.5なら半分サイズのタイル＝より細かい目、0.1なら超細かい目になります（非常に重くなります）。",
                 )
 
-        # Various sizes（複数サイズ）対応
-        st.markdown("##### Various sizes（複数サイズのタイルを混ぜる）")
-        use_various = st.checkbox(
-            "複数のタイル倍率を混ぜる",
-            value=False,
-            help="同じタイルセットから異なる倍率のタイルを複数読み込み、より自然な表現にします（処理時間とメモリ使用量が増えます）。",
-        )
-
         # 選択可能な代表倍率一覧
         scale_choices = [1.0, 0.8, 0.6, 0.5, 0.4, 0.33, 0.25, 0.2, 0.16, 0.12, 0.10]
 
@@ -375,18 +381,12 @@ if uploaded_files:
             return min(candidates, key=lambda x: abs(x - v))
 
         if use_various:
-            # 推奨: 現在の tile_scale と、その半分・1/4 近傍を候補初期値に
-            rec = {
-                round(nearest_scale(tile_scale, scale_choices), 2),
-                round(nearest_scale(max(0.05, tile_scale * 0.5), scale_choices), 2),
-                round(nearest_scale(max(0.05, tile_scale * 0.25), scale_choices), 2),
-            }
-            rec = [s for s in sorted(rec, reverse=True) if 0.1 <= s <= 1.0]
-            selected_scales = st.multiselect(
+            # 既定で全倍率を選択
+            selected_scales = sb.multiselect(
                 "使うタイル倍率（値が小さいほど細かい）",
                 options=scale_choices,
-                default=rec or [tile_scale],
-                help="例) 1.0, 0.5, 0.25 の3種類を混ぜると粒度が混ざってリッチに見えます。",
+                default=scale_choices,
+                help="複数倍率を混ぜると粒度が混ざってリッチに見えます。",
             )
             if not selected_scales:
                 selected_scales = [tile_scale]
@@ -398,11 +398,11 @@ if uploaded_files:
         # 並列数は自動設定（ユーザーには非表示）
         auto_pool = min(8, max(1, (os.cpu_count() or 4) - 1))
         # 詳細（最低限）
-        params["color_depth"] = st.slider(
+        params["color_depth"] = sb.slider(
             "カラー分割（多いほど精密・重くなる）",
             4,
             256,
-            32,
+            256,
             4,
             help="1チャンネルあたりの分割数。64〜128以上は処理・メモリ負荷が高くなります。",
         )
@@ -410,8 +410,8 @@ if uploaded_files:
         params["pixel_shift"] = "auto"  # タイルサイズに合わせて固定グリッド
         params["overlap_tiles"] = False
     elif process_type == "切り抜き":
-        st.markdown("#### 切り抜き設定")
-        crop_label = st.radio(
+        sb.markdown("#### 切り抜き設定")
+        crop_label = sb.radio(
             "切り抜き方法",
             [
                 "正方形（中央）",
@@ -425,20 +425,20 @@ if uploaded_files:
         }
         params["crop_method"] = crop_map[crop_label]
         if params["crop_method"] == "square":
-            params["size"] = st.number_input("一辺の長さ (px)", min_value=1, value=512)
+            params["size"] = sb.number_input("一辺の長さ (px)", min_value=1, value=512)
         else:
-            params["crop_width"] = st.number_input("幅 (px)", min_value=1, value=512)
-            params["crop_height"] = st.number_input("高さ (px)", min_value=1, value=512)
+            params["crop_width"] = sb.number_input("幅 (px)", min_value=1, value=512)
+            params["crop_height"] = sb.number_input("高さ (px)", min_value=1, value=512)
     elif process_type == "回転":
-        params["angle"] = st.slider("回転角度", 0, 360, 90, 15)
+        params["angle"] = sb.slider("回転角度", 0, 360, 90, 15)
     elif process_type == "ポスタライズ":
-        params["bits"] = st.slider("階調レベル", 1, 8, 2)
+        params["bits"] = sb.slider("階調レベル", 1, 8, 2)
     elif process_type == "ソラリゼーション":
-        params["threshold"] = st.slider("しきい値", 0, 255, 128)
+        params["threshold"] = sb.slider("しきい値", 0, 255, 128)
 
     # 出力形式の設定
-    st.markdown("#### 出力形式")
-    format_label = st.radio(
+    sb.markdown("#### 出力形式")
+    format_label = sb.radio(
         "出力形式",
         ["PNG", "JPEG"],
         horizontal=True,
@@ -447,7 +447,7 @@ if uploaded_files:
     output_format = "PNG" if format_label == "PNG" else "JPEG"
     jpeg_quality = None
     if output_format == "JPEG":
-        jpeg_quality = st.slider(
+        jpeg_quality = sb.slider(
             "JPEGの品質",
             min_value=60,
             max_value=100,
@@ -456,7 +456,7 @@ if uploaded_files:
         )
 
     # EXIF の扱い
-    exif_policy_label = st.radio(
+    exif_policy_label = sb.radio(
         "メタデータ（EXIF）の扱い",
         ["保持する", "GPSだけ削除", "全部削除"],
         horizontal=True,
