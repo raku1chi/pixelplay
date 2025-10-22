@@ -1,5 +1,7 @@
 import streamlit as st
 from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+import os
+from pathlib import Path
 import io
 import zipfile
 from datetime import datetime
@@ -227,6 +229,7 @@ if uploaded_files:
             "シャープ化",
             "明るさ調整",
             "コントラスト調整",
+            "フォトモザイク",
             "リサイズ",
             "切り抜き",
             "セピア",
@@ -271,6 +274,141 @@ if uploaded_files:
             params["width"] = st.number_input("幅 (px)", min_value=1, value=800)
         if params["resize_method"] in ("height", "fit", "stretch"):
             params["height"] = st.number_input("高さ (px)", min_value=1, value=600)
+    elif process_type == "フォトモザイク":
+        st.markdown("#### フォトモザイク設定（タイルセットとサイズを自由に選択）")
+        project_root = Path(__file__).resolve().parent
+        tiles_root = project_root / "tiler" / "tiles"
+
+        # tiler/tiles 配下の全タイルセットを列挙
+        available_sets: list[tuple[str, str]] = []  # (label, abs_path)
+        default_index = 0
+        if tiles_root.exists():
+            families = sorted([p for p in tiles_root.iterdir() if p.is_dir()])
+            for fam in families:
+                children = sorted([c for c in fam.iterdir() if c.is_dir()])
+                if children:
+                    for child in children:
+                        label = f"{fam.name}/{child.name}"
+                        available_sets.append((label, str(child)))
+                        # よく使う既定値を circles/gen_circle_100 に合わせる
+                        if label == "circles/gen_circle_100":
+                            default_index = len(available_sets) - 1
+                else:
+                    # 直下に画像があるタイプ（例: minecraft）
+                    label = f"{fam.name}"
+                    available_sets.append((label, str(fam)))
+        else:
+            st.warning(f"タイルルートが見つかりませんでした: {tiles_root}")
+
+        if not available_sets:
+            st.error(
+                "利用可能なタイルセットが見つかりません。'tiler/tiles' 配下を確認してください。"
+            )
+            st.stop()
+
+        labels = [lbl for lbl, _ in available_sets]
+        tile_label = st.selectbox(
+            "タイルセット", labels, index=min(default_index, len(labels) - 1)
+        )
+        tile_dir = Path(dict(available_sets)[tile_label])
+        if not tile_dir.exists():
+            st.warning(f"タイル画像が見つかりませんでした: {tile_dir}")
+        params["tile_dir"] = str(tile_dir)
+
+        # 主要パラメータ（わかりやすい1つのノブに集約）
+        fine_level = st.slider(
+            "目の細かさ（粗い ← 1 … 10 → 超細かい）",
+            1,
+            10,
+            3,
+            help="1で高速・粗め、数字が大きいほど細かく（処理が重く・時間がかかり）ます。内部的に画像スケールとタイル倍率を自動調整します。",
+        )
+        # レベルごとの推奨プリセット（image_scale, tile_scale）
+        presets = [
+            (0.5, 1.0),  # 1: 粗い（高速）
+            (0.8, 0.8),  # 2
+            (1.0, 0.6),  # 3: デフォルト
+            (1.2, 0.4),  # 4
+            (1.5, 0.25),  # 5
+            (1.6, 0.20),  # 6
+            (1.8, 0.16),  # 7
+            (2.0, 0.14),  # 8
+            (2.0, 0.12),  # 9
+            (2.0, 0.10),  # 10: 超細かい（非常に重い）
+        ]
+        image_scale, tile_scale = presets[fine_level - 1]
+        st.caption(f"推奨設定: 画像スケール {image_scale} / タイル倍率 {tile_scale}")
+
+        # 詳細を手動調整したい場合だけ個別スライダーを表示
+        with st.expander("詳細設定（ユーザーには不要です）", expanded=False):
+            custom = st.checkbox("画像スケール・タイル倍率を手動調整する", value=False)
+            if custom:
+                image_scale = st.slider(
+                    "画像スケール（大きいほど細かい）",
+                    0.2,
+                    2.0,
+                    image_scale,
+                    0.05,
+                    help="モザイク元画像の内部解像度。上げるほどタイル数が増えて細かくなります（処理は重くなります）。",
+                )
+                tile_scale = st.slider(
+                    "タイル倍率（小さいほど細かい）",
+                    0.05,
+                    1.0,
+                    tile_scale,
+                    0.01,
+                    help="タイル画像自体の拡大縮小倍率。0.5なら半分サイズのタイル＝より細かい目、0.1なら超細かい目になります（非常に重くなります）。",
+                )
+
+        # Various sizes（複数サイズ）対応
+        st.markdown("##### Various sizes（複数サイズのタイルを混ぜる）")
+        use_various = st.checkbox(
+            "複数のタイル倍率を混ぜる",
+            value=False,
+            help="同じタイルセットから異なる倍率のタイルを複数読み込み、より自然な表現にします（処理時間とメモリ使用量が増えます）。",
+        )
+
+        # 選択可能な代表倍率一覧
+        scale_choices = [1.0, 0.8, 0.6, 0.5, 0.4, 0.33, 0.25, 0.2, 0.16, 0.12, 0.10]
+
+        def nearest_scale(v: float, candidates: list[float]) -> float:
+            return min(candidates, key=lambda x: abs(x - v))
+
+        if use_various:
+            # 推奨: 現在の tile_scale と、その半分・1/4 近傍を候補初期値に
+            rec = {
+                round(nearest_scale(tile_scale, scale_choices), 2),
+                round(nearest_scale(max(0.05, tile_scale * 0.5), scale_choices), 2),
+                round(nearest_scale(max(0.05, tile_scale * 0.25), scale_choices), 2),
+            }
+            rec = [s for s in sorted(rec, reverse=True) if 0.1 <= s <= 1.0]
+            selected_scales = st.multiselect(
+                "使うタイル倍率（値が小さいほど細かい）",
+                options=scale_choices,
+                default=rec or [tile_scale],
+                help="例) 1.0, 0.5, 0.25 の3種類を混ぜると粒度が混ざってリッチに見えます。",
+            )
+            if not selected_scales:
+                selected_scales = [tile_scale]
+        else:
+            selected_scales = [tile_scale]
+
+        # 最終的に使う値を params へ格納
+        params["image_scale"] = float(image_scale)
+        # 並列数は自動設定（ユーザーには非表示）
+        auto_pool = min(8, max(1, (os.cpu_count() or 4) - 1))
+        # 詳細（最低限）
+        params["color_depth"] = st.slider(
+            "カラー分割（多いほど精密・重くなる）",
+            4,
+            256,
+            32,
+            4,
+            help="1チャンネルあたりの分割数。64〜128以上は処理・メモリ負荷が高くなります。",
+        )
+        params["resizing_scales"] = [float(s) for s in selected_scales]
+        params["pixel_shift"] = "auto"  # タイルサイズに合わせて固定グリッド
+        params["overlap_tiles"] = False
     elif process_type == "切り抜き":
         st.markdown("#### 切り抜き設定")
         crop_label = st.radio(
@@ -339,6 +477,31 @@ if uploaded_files:
     processed_images = []
 
     # 各画像を処理
+    # フォトモザイクのタイルは重いので一度だけ読み込んで使い回す
+    mosaic_tiles_cache = None
+    if process_type == "フォトモザイク":
+        try:
+            from tiler import build_mosaic_from_pil, load_tiles_with_config
+        except Exception:
+            st.error(
+                "フォトモザイク機能に必要な依存関係が見つかりませんでした。'numpy', 'opencv-python-headless', 'tqdm' をインストールしてください。"
+            )
+            st.stop()
+
+        @st.cache_resource(show_spinner=True)
+        def load_tiles_cached(
+            tile_dir: str, color_depth: int, resizing_scales: tuple[float, ...]
+        ):
+            return load_tiles_with_config(
+                [tile_dir], list(resizing_scales), color_depth
+            )
+
+        if "tile_dir" in params:
+            mosaic_tiles_cache = load_tiles_cached(
+                params["tile_dir"],
+                int(params.get("color_depth", 32)),
+                tuple(params.get("resizing_scales", [1.0])),
+            )
     for idx, uploaded_file in enumerate(uploaded_files, 1):
         st.subheader(f"画像 {idx}: {uploaded_file.name}")
 
@@ -354,7 +517,26 @@ if uploaded_files:
             st.image(image, use_container_width=True)
 
         # 画像処理を適用
-        processed_image = apply_image_process(image, process_type, params)
+        if process_type == "フォトモザイク":
+            if mosaic_tiles_cache is None:
+                st.error("有効なタイルセットを選択してください。")
+                st.stop()
+            # PIL -> mosaic PIL
+            processed_image = build_mosaic_from_pil(
+                image,
+                tiles_paths=None,
+                color_depth=int(params.get("color_depth", 32)),
+                image_scale=float(params.get("image_scale", 0.6)),
+                resizing_scales=list(params.get("resizing_scales", [1.0])),
+                pixel_shift=params.get("pixel_shift", "auto"),
+                pool_size=auto_pool,
+                overlap_tiles=bool(params.get("overlap_tiles", False)),
+                render=False,
+                # use preloaded tiles to avoid reloading per image
+                tiles=mosaic_tiles_cache,
+            )
+        else:
+            processed_image = apply_image_process(image, process_type, params)
 
         with col2:
             st.write("**加工後の画像**")
