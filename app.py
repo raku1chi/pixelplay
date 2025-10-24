@@ -328,6 +328,9 @@ if uploaded_files:
             params["height"] = sb.number_input("高さ (px)", min_value=1, value=600)
     elif process_type == "フォトモザイク":
         sb.markdown("#### フォトモザイク設定（タイルセットとサイズを自由に選択）")
+        sb.info(
+            "⚠️ フォトモザイクは高負荷な処理です。大きな画像は自動でリサイズされます。"
+        )
         project_root = Path(__file__).resolve().parent
         tiles_root = project_root / "tiler" / "tiles"
 
@@ -488,17 +491,27 @@ if uploaded_files:
 
         # 最終的に使う値を params へ格納
         params["image_scale"] = float(image_scale)
-        # 並列数は自動設定（ユーザーには非表示）
-        auto_pool = min(8, max(1, (os.cpu_count() or 4) - 1))
         # 詳細（最低限）
         params["color_depth"] = sb.slider(
             "カラー分割（多いほど精密・重くなる）",
             4,
             256,
-            256,
+            64,
             4,
-            help="1チャンネルあたりの分割数。64〜128以上は処理・メモリ負荷が高くなります。",
+            help="1チャンネルあたりの分割数。64〜128以上は処理・メモリ負荷が高くなります。デフォルト: 64（推奨）",
         )
+
+        # メモリ節約モード
+        sb.markdown("##### メモリ節約設定")
+        memory_mode = sb.radio(
+            "処理モード",
+            ["標準（並列処理）", "低メモリ（逐次処理）"],
+            help="大きな画像やメモリ不足の場合は「低メモリ」を選択してください。処理は遅くなりますが、安定します。",
+        )
+        if memory_mode == "低メモリ（逐次処理）":
+            auto_pool = 1
+        else:
+            auto_pool = min(4, max(1, (os.cpu_count() or 4) - 1))  # 8→4に削減
         params["resizing_scales"] = [float(s) for s in selected_scales]
         params["pixel_shift"] = "auto"  # タイルサイズに合わせて固定グリッド
         params["overlap_tiles"] = False
@@ -614,20 +627,39 @@ if uploaded_files:
             if mosaic_tiles_cache is None:
                 st.error("有効なタイルセットを選択してください。")
                 st.stop()
-            # PIL -> mosaic PIL
-            processed_image = build_mosaic_from_pil(
-                image,
-                tiles_paths=None,
-                color_depth=int(params.get("color_depth", 32)),
-                image_scale=float(params.get("image_scale", 0.6)),
-                resizing_scales=list(params.get("resizing_scales", [1.0])),
-                pixel_shift=params.get("pixel_shift", "auto"),
-                pool_size=auto_pool,
-                overlap_tiles=bool(params.get("overlap_tiles", False)),
-                render=False,
-                # use preloaded tiles to avoid reloading per image
-                tiles=mosaic_tiles_cache,
-            )
+
+            # 高解像度画像の自動リサイズ（メモリ対策）
+            MAX_PIXELS = 4_000_000  # 約2000x2000ピクセル相当
+            image_pixels = image.width * image.height
+            downsample_image = image
+
+            if image_pixels > MAX_PIXELS:
+                scale_factor = (MAX_PIXELS / image_pixels) ** 0.5
+                new_width = int(image.width * scale_factor)
+                new_height = int(image.height * scale_factor)
+                downsample_image = image.resize((new_width, new_height), Image.LANCZOS)
+                st.warning(
+                    f"⚠️ 画像が大きすぎるため、{image.width}x{image.height} → {new_width}x{new_height} にリサイズして処理します。"
+                )
+
+            # プログレス表示用
+            with st.spinner(
+                "フォトモザイクを生成中...（大きな画像は時間がかかります）"
+            ):
+                # PIL -> mosaic PIL
+                processed_image = build_mosaic_from_pil(
+                    downsample_image,
+                    tiles_paths=None,
+                    color_depth=int(params.get("color_depth", 32)),
+                    image_scale=float(params.get("image_scale", 0.6)),
+                    resizing_scales=list(params.get("resizing_scales", [1.0])),
+                    pixel_shift=params.get("pixel_shift", "auto"),
+                    pool_size=auto_pool,
+                    overlap_tiles=bool(params.get("overlap_tiles", False)),
+                    render=False,
+                    # use preloaded tiles to avoid reloading per image
+                    tiles=mosaic_tiles_cache,
+                )
         else:
             processed_image = apply_image_process(image, process_type, params)
 
