@@ -668,54 +668,32 @@ if uploaded_files:
             st.image(processed_image, use_container_width=True)
 
         # 処理後（またはそのまま）の画像を保存
-        processed_images.append((processed_image, uploaded_file.name))
+        processed_images.append((processed_image, uploaded_file.name, image))
 
         # 画像情報表示
         st.caption(
             f"サイズ: {image.size[0]} x {image.size[1]} ピクセル | フォーマット: {image.format} | モード: {image.mode}"
         )
 
-        # ダウンロードボタン（加工なしでも可）
-        # JPEG時のEXIF処理
-        exif_bytes = None
-        if output_format == "JPEG":
-            exif_bytes = build_exif_bytes(image, exif_policy)
-        byte_im, ext, mime = prepare_download_bytes(
-            processed_image, output_format, jpeg_quality, exif_bytes
-        )
-        st.download_button(
-            label=f"📥 画像 {idx} をダウンロード",
-            data=byte_im,
-            file_name=make_download_filename(idx, uploaded_file.name, ext),
-            mime=mime,
-            key=f"download_{idx}",
-        )
-
         if idx < len(uploaded_files):
             st.divider()
 
-    # ZIPファイルでまとめてダウンロード（加工なしでも可）
-    if len(processed_images) > 1:
+    # ZIPファイルでまとめてダウンロード
+    if len(processed_images) >= 1:
         st.divider()
-        st.subheader("📦 3. まとめてダウンロード")
+        st.subheader("📦 3. ダウンロード")
+
+        if len(processed_images) == 1:
+            st.info("💡 画像は上の表示エリアから右クリック（長押し）でも保存できます")
 
         # ZIPファイルを作成
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            for idx, (img, original_name) in enumerate(processed_images, 1):
-                # 各画像をバイトストリームに保存（選択形式に合わせる）
-                # EXIFは元画像リストから再取得するのが理想だが、簡便のためここでは strip_all を除き統一ポリシーで付与
+            for idx, (img, original_name, original_img) in enumerate(processed_images, 1):
+                # JPEG時のEXIF処理（元画像から取得）
                 exif_bytes = None
                 if output_format == "JPEG":
-                    # ここでは ZIP では processed_images に元画像参照がないため、
-                    # 個別保存時と同ポリシーを適用し、EXIFは付与しないか、方針に基づき可能なら付与
-                    # 実運用では元EXIFを同時に保持する構造にするのがより厳密
-                    exif_bytes = (
-                        None  # ZIPでは安全側として EXIF なし（必要なら拡張可能）
-                    )
-                    if exif_policy in ("keep", "strip_gps"):
-                        # processed画像から取得しても撮影情報は乏しいため、ここは None のままにします
-                        exif_bytes = None
+                    exif_bytes = build_exif_bytes(original_img, exif_policy)
                 img_bytes, ext, _mime = prepare_download_bytes(
                     img, output_format, jpeg_quality, exif_bytes
                 )
@@ -728,8 +706,13 @@ if uploaded_files:
         # タイムスタンプ付きファイル名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+        download_label = (
+            f"📥 画像をダウンロード" if len(processed_images) == 1
+            else f"🗜️ すべての画像をZIPでダウンロード ({len(processed_images)}枚)"
+        )
+
         st.download_button(
-            label=f"🗜️ すべての画像をZIPでダウンロード ({len(processed_images)}枚)",
+            label=download_label,
             data=zip_buffer.getvalue(),
             file_name=f"processed_images_{timestamp}.zip",
             mime="application/zip",
